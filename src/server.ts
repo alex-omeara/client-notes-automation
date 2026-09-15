@@ -1,17 +1,14 @@
 import 'dotenv/config';
 import express, { type Request, type Response } from 'express';
 import path from 'node:path';
-import { saveTranscript } from './tella-transcript.js';
+import { generateActionPoints } from './claude-action-points.js';
+import { fetchTranscript, saveTranscriptPayload } from './tella-transcript.js';
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
 const frontendDirectory = path.resolve(process.cwd(), 'dist');
 
 app.use(express.json({ limit: '16kb' }));
-
-app.get('/api/health', (_request: Request, response: Response) => {
-  response.json({ ok: true });
-});
 
 app.post('/api/transcripts', async (request: Request, response: Response) => {
   const videoId = request.body?.videoId;
@@ -21,10 +18,16 @@ app.post('/api/transcripts', async (request: Request, response: Response) => {
   }
 
   try {
-    const fileName = await saveTranscript(videoId);
-    response.json({ fileName, videoId });
+    const transcript = await fetchTranscript(videoId);
+    const transcriptFileName = await saveTranscriptPayload(videoId, transcript);
+    const actionPoints = await generateActionPoints(videoId, transcript);
+    response.json({
+      actionPoints,
+      transcriptFileName,
+      videoId,
+    });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Unable to save transcript.';
+    const message = error instanceof Error ? error.message : 'Unable to generate action points.';
     response.status(502).json({ error: message });
   }
 });
@@ -41,5 +44,5 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 app.listen(port, () => {
-  console.log(`Client report connector server listening on http://localhost:${port}`);
+  console.log(`Client notes automation server listening on http://localhost:${port}`);
 });

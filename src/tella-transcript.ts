@@ -9,6 +9,8 @@ type TellaTranscriptPayload = {
   language?: string | null;
 };
 
+export type TellaTranscript = TellaTranscriptPayload;
+
 type TellaVideoResponse = {
   video?: {
     transcript?: TellaTranscriptPayload | null;
@@ -17,7 +19,7 @@ type TellaVideoResponse = {
   message?: string;
 };
 
-export async function saveTranscript(videoId: string): Promise<string> {
+export async function fetchTranscript(videoId: string): Promise<TellaTranscript> {
   const baseUrl = (process.env.TELLA_API_BASE_URL ?? 'https://api.tella.com/v1').replace(/\/$/, '');
   const apiKey = process.env.TELLA_API_KEY;
 
@@ -43,6 +45,10 @@ export async function saveTranscript(videoId: string): Promise<string> {
     throw new Error('The Tella video does not have a transcript available yet.');
   }
 
+  return transcript;
+}
+
+export async function saveTranscriptPayload(videoId: string, transcript: TellaTranscript): Promise<string> {
   const tempDirectory = path.resolve(process.cwd(), 'temp');
   await mkdir(tempDirectory, { recursive: true });
 

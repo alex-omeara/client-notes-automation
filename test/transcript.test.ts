@@ -2,7 +2,7 @@ import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { saveTranscript } from '../src/tella-transcript.js';
+import { fetchTranscript, saveTranscriptPayload } from '../src/tella-transcript.js';
 
 const tempDirectory = path.resolve(process.cwd(), 'temp');
 const originalFetch = globalThis.fetch;
@@ -46,7 +46,8 @@ test('saves the Tella transcript payload as JSON in temp', async () => {
     });
   };
 
-  const fileName = await saveTranscript('vid_123');
+  const transcript = await fetchTranscript('vid_123');
+  const fileName = await saveTranscriptPayload('vid_123', transcript);
   const saved = JSON.parse(await readFile(path.join(tempDirectory, fileName), 'utf8')) as {
     status: string;
     text: string;
