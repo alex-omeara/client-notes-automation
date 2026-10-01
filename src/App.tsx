@@ -1,6 +1,7 @@
-import { useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 
 type AppStatus = 'ready' | 'recording' | 'processing' | 'success' | 'error';
+type OutputMode = 'google-sheet' | 'downloads';
 
 type ActionPointsSuccess = {
   actionPoints: {
@@ -9,6 +10,8 @@ type ActionPointsSuccess = {
   };
   transcriptFileName: string;
 };
+
+type SpreadsheetOption = { name: string };
 
 function statusLabel(status: AppStatus): string {
   const labels: Record<AppStatus, string> = {
@@ -27,9 +30,75 @@ export default function App(): ReactElement {
   const [detail, setDetail] = useState('');
   const [savedFiles, setSavedFiles] = useState<ActionPointsSuccess | null>(null);
   const [videoId, setVideoId] = useState('');
+  const [outputMode, setOutputMode] = useState<OutputMode>('google-sheet');
+  const [spreadsheets, setSpreadsheets] = useState<SpreadsheetOption[]>([]);
+  const [spreadsheetName, setSpreadsheetName] = useState('');
+  const [tabs, setTabs] = useState<string[]>([]);
+  const [sheetName, setSheetName] = useState('');
+  const [sheetsLoading, setSheetsLoading] = useState(false);
+  const [sheetsError, setSheetsError] = useState('');
+  const [weekNumber, setWeekNumber] = useState('1');
 
   const canStart = status === 'ready' || status === 'success' || status === 'error';
   const canStop = status === 'recording';
+
+  useEffect(() => {
+    let cancelled = false;
+    setSheetsLoading(true);
+    setSheetsError('');
+    void fetch('/api/google/spreadsheets', { cache: 'no-store' })
+      .then(async (response) => {
+        const payload: unknown = await response.json();
+        if (!response.ok || !isSpreadsheetList(payload)) {
+          throw new Error('Unable to load Google spreadsheets.');
+        }
+        if (cancelled) return;
+        setSpreadsheets(payload.spreadsheets);
+        setSpreadsheetName((currentName) => currentName || payload.spreadsheets[0]?.name || '');
+      })
+      .catch(() => {
+        if (!cancelled) setSheetsError('Could not load spreadsheets. Check Google Drive access and try again.');
+      })
+      .finally(() => {
+        if (!cancelled) setSheetsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!spreadsheetName) {
+      setTabs([]);
+      setSheetName('');
+      return;
+    }
+
+    let cancelled = false;
+    setSheetsLoading(true);
+    setSheetsError('');
+    void fetch(`/api/google/spreadsheets/${encodeURIComponent(spreadsheetName)}/tabs`, { cache: 'no-store' })
+      .then(async (response) => {
+        const payload: unknown = await response.json();
+        if (!response.ok || !isTabList(payload)) {
+          throw new Error('Unable to load worksheet tabs.');
+        }
+        if (cancelled) return;
+        setTabs(payload.tabs);
+        setSheetName((currentName) => payload.tabs.includes(currentName)
+          ? currentName
+          : payload.tabs.includes('test') ? 'test' : payload.tabs[0] ?? '');
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTabs([]);
+          setSheetName('');
+          setSheetsError('Could not load worksheet tabs for that spreadsheet.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSheetsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [spreadsheetName]);
 
   function startRecording(): void {
     setStatus('recording');
@@ -40,7 +109,13 @@ export default function App(): ReactElement {
   async function finishRecording(): Promise<void> {
     if (!videoId) {
       setStatus('error');
-      setDetail('No Tella video was supplied yet. Record a clip in Tella and paste the video ID if needed.');
+      setDetail('Enter a Tella video ID to continue. Share URLs are not accepted.');
+      return;
+    }
+
+    if (/^https?:\/\//i.test(videoId.trim())) {
+      setStatus('error');
+      setDetail('Enter the Tella video ID only. Share URLs are not accepted.');
       return;
     }
 
@@ -51,12 +126,24 @@ export default function App(): ReactElement {
       const response = await fetch('/api/transcripts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ videoId }),
+        body: JSON.stringify({
+          videoId,
+          outputMode,
+          spreadsheetName: outputMode === 'google-sheet' ? spreadsheetName : undefined,
+          sheetName: outputMode === 'google-sheet' ? sheetName : '',
+          weekNumber: outputMode === 'google-sheet' ? Number(weekNumber) : undefined,
+        }),
       });
       const payload: unknown = await response.json();
 
       if (!response.ok || !isActionPointsSuccess(payload)) {
-        throw new Error(isTranscriptError(payload) ? payload.error : 'Action points could not be generated.');
+        if (response.status === 400 && isTranscriptError(payload)) {
+          throw new Error(payload.error);
+        }
+        const requestId = isTranscriptError(payload) ? payload.requestId : undefined;
+        throw new Error(requestId
+          ? `Unable to complete the transcript request. Reference: ${requestId}`
+          : 'Unable to complete the transcript request.');
       }
 
       setSavedFiles(payload);
@@ -82,7 +169,7 @@ export default function App(): ReactElement {
           <span>{statusLabel(status)}</span>
         </div>
 
-        {status === 'ready' && <div className="message-block"><h2>Ready when you are</h2><p>Start a Tella recording, then paste the Tella video ID to continue with transcript extraction.</p></div>}
+        {status === 'ready' && <div className="message-block"><h2>Ready when you are</h2><p>Start a Tella recording, then enter its video ID to continue with transcript extraction. Share URLs are not accepted.</p></div>}
         {status === 'recording' && <div className="message-block"><h2>Make your point</h2><p>Your Tella recording is active. Finish the recording to continue.</p></div>}
         {status === 'processing' && <div className="message-block"><h2>Generating action points</h2><p>The server is fetching the transcript and asking Claude to produce temporary action-point artifacts.</p></div>}
         {status === 'success' && savedFiles && <div className="message-block"><h2>Action points generated</h2><p>Transcript: <code>{savedFiles.transcriptFileName}</code></p><p>Markdown: <code>{savedFiles.actionPoints.markdownFileName}</code></p><p>JSON: <code>{savedFiles.actionPoints.jsonFileName}</code></p></div>}
@@ -98,12 +185,80 @@ export default function App(): ReactElement {
             <input
               value={videoId}
               onChange={(event) => setVideoId(event.target.value.trim())}
-              placeholder="vid_abc123"
+              placeholder="Enter the Tella video ID only"
               aria-label="Tella video ID"
             />
           </label>
 
-          <button className="secondary-button" type="button" disabled={!canStop && !videoId} onClick={() => void finishRecording()}>
+          <div aria-label="Output mode" style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className={outputMode === 'google-sheet' ? 'primary-button' : 'secondary-button'}
+              onClick={() => setOutputMode('google-sheet')}
+            >
+              Google Sheet
+            </button>
+            <button
+              type="button"
+              className={outputMode === 'downloads' ? 'primary-button' : 'secondary-button'}
+              onClick={() => setOutputMode('downloads')}
+            >
+              Downloads
+            </button>
+          </div>
+
+          {outputMode === 'google-sheet' && (
+            <>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontWeight: 600 }}>
+                Spreadsheet
+                <select
+                  value={spreadsheetName}
+                  onChange={(event) => {
+                    setSpreadsheetName(event.target.value);
+                    setTabs([]);
+                    setSheetName('');
+                  }}
+                  aria-label="Spreadsheet"
+                  disabled={sheetsLoading || spreadsheets.length === 0}
+                >
+                  {spreadsheets.map((spreadsheet) => (
+                    <option key={spreadsheet.name} value={spreadsheet.name}>{spreadsheet.name}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontWeight: 600 }}>
+                Worksheet tab
+                <select
+                  value={sheetName}
+                  onChange={(event) => setSheetName(event.target.value)}
+                  aria-label="Worksheet tab"
+                  disabled={sheetsLoading || tabs.length === 0}
+                >
+                  {tabs.map((tab) => <option key={tab} value={tab}>{tab}</option>)}
+                </select>
+              </label>
+
+              {sheetsError && <p role="alert">{sheetsError}</p>}
+
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontWeight: 600 }}>
+                Week number
+                <input
+                  value={weekNumber}
+                  onChange={(event) => setWeekNumber(event.target.value.trim())}
+                  placeholder="1"
+                  aria-label="Week number"
+                />
+              </label>
+            </>
+          )}
+
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={(!canStop && !videoId) || (outputMode === 'google-sheet' && (sheetsLoading || !spreadsheetName || !sheetName))}
+            onClick={() => void finishRecording()}
+          >
             Generate action points from video transcript
           </button>
         </div>
@@ -129,6 +284,23 @@ function isActionPointsSuccess(value: unknown): value is ActionPointsSuccess {
     && typeof actionPoints.jsonFileName === 'string';
 }
 
-function isTranscriptError(value: unknown): value is { error: string } {
-  return typeof value === 'object' && value !== null && 'error' in value && typeof value.error === 'string';
+function isTranscriptError(value: unknown): value is { error: string; requestId?: string } {
+  return typeof value === 'object'
+    && value !== null
+    && 'error' in value
+    && typeof value.error === 'string'
+    && (!('requestId' in value) || typeof value.requestId === 'string');
+}
+
+function isSpreadsheetList(value: unknown): value is { spreadsheets: SpreadsheetOption[] } {
+  return typeof value === 'object' && value !== null && 'spreadsheets' in value
+    && Array.isArray(value.spreadsheets)
+    && value.spreadsheets.every((item) => typeof item === 'object' && item !== null
+      && 'name' in item && typeof item.name === 'string');
+}
+
+function isTabList(value: unknown): value is { tabs: string[] } {
+  return typeof value === 'object' && value !== null && 'tabs' in value
+    && Array.isArray(value.tabs)
+    && value.tabs.every((tab) => typeof tab === 'string');
 }
