@@ -17,6 +17,30 @@ import { fileURLToPath } from 'node:url';
 const port = Number(process.env.PORT ?? 3001);
 const frontendDirectory = path.resolve(process.cwd(), 'dist');
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function getUpstreamErrorMessage(error: unknown): string | undefined {
+  if (isRecord(error)) {
+    const response = error.response;
+    if (isRecord(response)) {
+      const data = response.data;
+      if (isRecord(data)) {
+        const apiError = data.error;
+        if (isRecord(apiError)) {
+          const message = apiError.message;
+          if (typeof message === 'string' && message.length > 0) {
+            return message;
+          }
+        }
+      }
+    }
+  }
+
+  return error instanceof Error && error.message ? error.message : undefined;
+}
+
 export type ServerDependencies = {
   fetchTranscript: typeof fetchTranscript;
   saveTranscriptPayload: typeof saveTranscriptPayload;
@@ -85,6 +109,13 @@ export function createApp(
       const tabs = await dependencies.listGoogleSheetTabs(spreadsheetName);
       response.json({ tabs });
     } catch (error: unknown) {
+      const upstreamErrorMessage = getUpstreamErrorMessage(error);
+      if (upstreamErrorMessage) {
+        requestLogger.debug({
+          event: 'integration.google_sheets.list_tabs_upstream_error',
+          upstreamErrorMessage,
+        });
+      }
       requestLogger.error({ event: 'integration.google_sheets.list_tabs_failed', ...getSafeErrorMetadata(error) });
       response.status(502).json({ error: 'Unable to load worksheet tabs.' });
     }

@@ -77,6 +77,35 @@ test('lists the two available note spreadsheets and selected spreadsheet tabs', 
   });
 });
 
+test('logs Google Sheets upstream error messages at debug level', async () => {
+  const previousLogLevel = process.env.LOG_LEVEL;
+  process.env.LOG_LEVEL = 'debug';
+
+  try {
+    await withServer(fakeDependencies({
+      listGoogleSheetTabs: async () => {
+        throw Object.assign(new Error('Request failed with status code 400'), {
+          response: { data: { error: { message: 'The requested resource was not found.' } } },
+        });
+      },
+    }), async (url, getRecords) => {
+      const response = await fetch(`${url}/api/google/spreadsheets/Monday%20Client%20Notes/tabs`);
+      const payload = await response.json() as { error: string };
+      const records = getRecords();
+      const upstreamError = records.find((record) => record.event === 'integration.google_sheets.list_tabs_upstream_error');
+
+      assert.equal(response.status, 502);
+      assert.equal(payload.error, 'Unable to load worksheet tabs.');
+      assert.equal(upstreamError?.level, 20);
+      assert.equal(upstreamError?.upstreamErrorMessage, 'The requested resource was not found.');
+      assert.equal(records.some((record) => JSON.stringify(record).includes('Request failed with status code 400')), false);
+    });
+  } finally {
+    if (previousLogLevel === undefined) delete process.env.LOG_LEVEL;
+    else process.env.LOG_LEVEL = previousLogLevel;
+  }
+});
+
 test('returns and logs a request ID without logging transcript or generated text', async () => {
   await withServer(fakeDependencies(), async (url, getRecords) => {
     const response = await fetch(`${url}/api/transcripts`, {

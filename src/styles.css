@@ -24,7 +24,6 @@ h1 { max-width: 740px; margin: 1.2rem 0; font-size: clamp(3rem, 7vw, 6.8rem); fo
 .workspace { max-width: 700px; margin-top: 4rem; padding: 2.2rem; border: 1px solid #b5c4b8; background: rgba(255, 255, 255, 0.48); box-shadow: 12px 12px 0 rgba(24, 36, 31, 0.08); }
 .status-indicator { display: flex; align-items: center; gap: 0.65rem; color: #b14e2e; font: 700 0.75rem/1.2 Arial, sans-serif; letter-spacing: 0.12em; text-transform: uppercase; }
 .status-dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: currentColor; }
-.status-recording .status-dot { animation: pulse 1.2s infinite; }
 .message-block { min-height: 9rem; padding: 2.2rem 0 1rem; }
 h2 { margin: 0 0 0.7rem; font-size: 2.1rem; font-weight: 400; }
 .message-block p { margin: 0; color: #52615a; font: 1rem/1.6 Arial, sans-serif; }

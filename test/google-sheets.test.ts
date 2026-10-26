@@ -10,6 +10,7 @@ import {
   buildWeekActionPointWrites,
   buildWeekLookupRange,
   findWeekRange,
+  listGoogleSheetTabs,
   listGoogleSpreadsheets,
   parseMarkdownActionPoints,
 } from '../src/google-sheets.js';
@@ -105,6 +106,29 @@ test('requires both named spreadsheet IDs and ignores the legacy ID', async () =
   }
 });
 
+test('requires a service account key file to list spreadsheet tabs', async () => {
+  const previousMonday = process.env.GOOGLE_MONDAY_CLIENT_NOTES_SPREADSHEET_ID;
+  const previousSunday = process.env.GOOGLE_SUNDAY_CLIENT_NOTES_SPREADSHEET_ID;
+  const previousKeyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE;
+  process.env.GOOGLE_MONDAY_CLIENT_NOTES_SPREADSHEET_ID = 'monday-id';
+  process.env.GOOGLE_SUNDAY_CLIENT_NOTES_SPREADSHEET_ID = 'sunday-id';
+  delete process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE;
+
+  try {
+    await assert.rejects(
+      listGoogleSheetTabs('Monday Client Notes'),
+      /Google service account key file is not configured/,
+    );
+  } finally {
+    if (previousMonday === undefined) delete process.env.GOOGLE_MONDAY_CLIENT_NOTES_SPREADSHEET_ID;
+    else process.env.GOOGLE_MONDAY_CLIENT_NOTES_SPREADSHEET_ID = previousMonday;
+    if (previousSunday === undefined) delete process.env.GOOGLE_SUNDAY_CLIENT_NOTES_SPREADSHEET_ID;
+    else process.env.GOOGLE_SUNDAY_CLIENT_NOTES_SPREADSHEET_ID = previousSunday;
+    if (previousKeyFile === undefined) delete process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE;
+    else process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE = previousKeyFile;
+  }
+});
+
 test('writes one action point per week row and joins overflow in the final row', () => {
   const weekRange = { startRow: 2, endRow: 7 };
   const writes = buildWeekActionPointWrites(weekRange, [
@@ -124,7 +148,7 @@ test('writes one action point per week row and joins overflow in the final row',
     { rowNumber: 4, text: 'Action 3' },
     { rowNumber: 5, text: 'Action 4' },
     { rowNumber: 6, text: 'Action 5' },
-    { rowNumber: 7, text: 'Action 6\nAction 7\nAction 8' },
+    { rowNumber: 7, text: '- Action 6\n- Action 7\n- Action 8' },
   ]);
   assert.equal(buildActionPointCellRange('test', writes[0].rowNumber), "'test'!L2");
   assert.equal(writes.every((write) => write.rowNumber >= weekRange.startRow && write.rowNumber <= weekRange.endRow), true);
@@ -145,7 +169,7 @@ test('allocates action points within a week block of a different size', () => {
     { rowNumber: 30, text: 'One' },
     { rowNumber: 31, text: 'Two' },
     { rowNumber: 32, text: 'Three' },
-    { rowNumber: 33, text: 'Four\nFive' },
+    { rowNumber: 33, text: '- Four\n- Five' },
   ]);
   assert.equal(writes.every((write) => write.rowNumber >= weekRange.startRow && write.rowNumber <= weekRange.endRow), true);
 });

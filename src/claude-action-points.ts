@@ -8,7 +8,7 @@ import type { TellaTranscript } from './tella-transcript.js';
 
 const actionPointsPrompt = `Analyze the following meeting transcript and produce a clear list of concrete action points.
 
-Use only information present in the transcript. Include an owner or due date only when one is explicitly stated. Return a concise, readable Markdown list.
+Use only information present in the transcript. Include an owner or due date only when one is explicitly stated. Return a concise, readable list.
 
 Transcript:
 `;

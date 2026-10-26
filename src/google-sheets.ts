@@ -28,17 +28,16 @@ const GOOGLE_SPREADSHEET_ENV = [
   ['Sunday Client Notes', 'GOOGLE_SUNDAY_CLIENT_NOTES_SPREADSHEET_ID'],
 ] as const;
 
-function createGoogleAuth(): InstanceType<typeof google.auth.OAuth2> {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
-  if (!clientId || !clientSecret || !refreshToken) {
-    throw new Error('Google Sheets OAuth is not configured.');
+function createGoogleAuth(): InstanceType<typeof google.auth.GoogleAuth> {
+  const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE?.trim();
+  if (!keyFile) {
+    throw new Error('Google service account key file is not configured.');
   }
 
-  const auth = new google.auth.OAuth2(clientId, clientSecret);
-  auth.setCredentials({ refresh_token: refreshToken });
-  return auth;
+  return new google.auth.GoogleAuth({
+    keyFile,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
 }
 
 export async function listGoogleSpreadsheets(): Promise<GoogleSpreadsheet[]> {
@@ -156,7 +155,7 @@ export function buildWeekActionPointWrites(
 
   const overflow = actionPoints.slice(individualCount);
   if (overflow.length > 0) {
-    writes.push({ rowNumber: weekRange.endRow, text: overflow.join('\n') });
+    writes.push({ rowNumber: weekRange.endRow, text: overflow.map((actionPoint) => `- ${actionPoint}`).join('\n') });
   }
 
   return writes;
@@ -192,9 +191,6 @@ export async function appendActionPointsToGoogleSheet(
 
   if (!sheetName || !spreadsheetName) {
     throw new Error('A spreadsheet and worksheet tab must be selected.');
-  }
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_REFRESH_TOKEN) {
-    throw new Error('Google Sheets OAuth is not configured.');
   }
 
   const configured = await listGoogleSpreadsheets();
